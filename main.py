@@ -365,6 +365,31 @@ def history():
     ])
 
 
+@app.route('/history/<int:trip_id>', methods=['PATCH'])
+@login_required
+def update_trip(trip_id):
+    trip = Trip.query.filter_by(id=trip_id, user_id=current_user.id).first()
+    if not trip:
+        return jsonify({'error': 'Trip not found.'}), 404
+    data = request.get_json()
+    start = (data.get('start') or '').strip()
+    end   = (data.get('end')   or '').strip()
+    distance_miles = data.get('distance_miles')
+    if not start or not end or distance_miles is None:
+        return jsonify({'error': 'Missing fields.'}), 400
+    trip.start_location  = start
+    trip.end_location    = end
+    trip.distance_miles  = float(distance_miles)
+    db.session.commit()
+    return jsonify({
+        'id':        trip.id,
+        'start':     trip.start_location,
+        'end':       trip.end_location,
+        'miles':     trip.distance_miles,
+        'timestamp': trip.timestamp.strftime('%b %d, %Y %I:%M %p') if trip.timestamp else ''
+    })
+
+
 @app.route('/history/<int:trip_id>', methods=['DELETE'])
 @login_required
 def delete_trip(trip_id):
