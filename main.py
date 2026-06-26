@@ -1,13 +1,16 @@
 import os
+import re
 import time
 import requests
 from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
     login_required, current_user
 )
+from flask_mail import Mail, Message
 from werkzeug.security import generate_password_hash, check_password_hash
 
 load_dotenv()
@@ -17,9 +20,17 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-fallback-key')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mileage.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME')
+
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
+mail = Mail(app)
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +39,7 @@ login_manager.login_view = 'login'
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     trips = db.relationship('Trip', backref='user', lazy=True, cascade='all, delete-orphan')
@@ -52,6 +63,62 @@ class Trip(db.Model):
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+
+# ---------------------------------------------------------------------------
+# Password validation
+# ---------------------------------------------------------------------------
+
+_PW_SPECIAL = re.compile(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]')
+
+def validate_password(password):
+    errors = []
+    if len(password) < 6:
+        errors.append('at least 6 characters')
+    if not re.search(r'[a-z]', password):
+        errors.append('one lowercase letter (a–z)')
+    if not re.search(r'[A-Z]', password):
+        errors.append('one uppercase letter (A–Z)')
+    if not re.search(r'\d', password):
+        errors.append('one number (0–9)')
+    if not _PW_SPECIAL.search(password):
+        errors.append('one special character (!@#$…)')
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Password reset tokens (1-hour expiry via itsdangerous)
+# ---------------------------------------------------------------------------
+
+def _serializer():
+    return URLSafeTimedSerializer(app.config['SECRET_KEY'])
+
+def generate_reset_token(email):
+    return _serializer().dumps(email, salt='pw-reset-salt')
+
+def verify_reset_token(token, max_age=3600):
+    try:
+        return _serializer().loads(token, salt='pw-reset-salt', max_age=max_age)
+    except (SignatureExpired, BadSignature):
+        return None
+
+def send_reset_email(user, token):
+    reset_url = url_for('reset_password', token=token, _external=True)
+    if not app.config.get('MAIL_USERNAME'):
+        app.logger.info('DEV — password reset URL: %s', reset_url)
+        return
+    msg = Message(
+        subject='Mileage Tracker — Password Reset',
+        recipients=[user.email],
+        html=(
+            f'<p>Hi {user.username},</p>'
+            f'<p>Click the link below to reset your password. '
+            f'The link expires in 1 hour.</p>'
+            f'<p><a href="{reset_url}">{reset_url}</a></p>'
+            f'<p>If you did not request this, you can ignore this email.</p>'
+        )
+    )
+    mail.send(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -109,11 +176,19 @@ def register():
         if not username or not email or not password:
             flash('All fields are required.', 'danger')
             return render_template('register.html')
-        if password != confirm:
-            flash('Passwords do not match.', 'danger')
+        if User.query.filter_by(username=username).first():
+            flash('That username is already taken.', 'danger')
             return render_template('register.html')
         if User.query.filter_by(email=email).first():
             flash('An account with that email already exists.', 'danger')
+            return render_template('register.html')
+        if password != confirm:
+            flash('Passwords do not match.', 'danger')
+            return render_template('register.html')
+
+        pw_errors = validate_password(password)
+        if pw_errors:
+            flash('Password must include: ' + ', '.join(pw_errors) + '.', 'danger')
             return render_template('register.html')
 
         user = User(username=username, email=email)
@@ -147,6 +222,66 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('login'))
+
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        user = User.query.filter_by(email=email).first()
+        if user:
+            token = generate_reset_token(user.email)
+            try:
+                send_reset_email(user, token)
+            except Exception as e:
+                app.logger.error('Failed to send reset email: %s', e)
+                flash('Could not send email. Check your MAIL_* settings in .env.', 'danger')
+                return render_template('forgot_password.html')
+        # Always show the same message to prevent user enumeration
+        flash('If that email is registered, a reset link has been sent. Check your inbox (and spam folder).', 'info')
+        if app.debug and not app.config.get('MAIL_USERNAME'):
+            flash('DEV MODE: No email configured — check the terminal for the reset link.', 'warning')
+        return redirect(url_for('login'))
+
+    return render_template('forgot_password.html')
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    email = verify_reset_token(token)
+    if not email:
+        flash('This reset link is invalid or has expired. Please request a new one.', 'danger')
+        return redirect(url_for('forgot_password'))
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm = request.form.get('confirm_password', '')
+
+        if password != confirm:
+            flash('Passwords do not match.', 'danger')
+            return render_template('reset_password.html', token=token)
+
+        pw_errors = validate_password(password)
+        if pw_errors:
+            flash('Password must include: ' + ', '.join(pw_errors) + '.', 'danger')
+            return render_template('reset_password.html', token=token)
+
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            flash('Account not found.', 'danger')
+            return redirect(url_for('login'))
+
+        user.set_password(password)
+        db.session.commit()
+        flash('Password updated successfully. Please sign in.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('reset_password.html', token=token)
 
 
 # ---------------------------------------------------------------------------
