@@ -252,7 +252,17 @@
     .stat-divider { width: 1px; height: 44px; background: var(--border); flex-shrink: 0; }
 
     /* ── History ─────────────────────────────── */
-    .history-top { display: flex; align-items: center; margin-bottom: 16px; }
+    .history-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .export-btns { display: flex; gap: 6px; }
+    .export-btn {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 8px; border: 1.5px solid var(--border);
+      background: white; color: var(--muted); font-size: 0.78rem; font-weight: 600;
+      cursor: pointer; font-family: 'Inter', sans-serif; transition: all .15s;
+      white-space: nowrap;
+    }
+    .export-btn:hover { border-color: var(--primary); color: var(--primary); background: #EEF2FF; }
+    @media (max-width: 480px) { .export-label { display: none; } }
     .trips-header {
       display: grid; grid-template-columns: 1fr 1fr 72px 116px 36px;
       gap: 8px; padding-bottom: 8px;
@@ -397,6 +407,17 @@
       <div class="panel-heading" style="margin-bottom:0">
         <div class="panel-heading-icon"><i class="fas fa-history"></i></div>
         Trip History
+      </div>
+      <div class="export-btns d-none" id="exportBtns">
+        <button class="export-btn" onclick="exportPDF()" title="Export as PDF">
+          <i class="fas fa-file-pdf"></i><span class="export-label"> PDF</span>
+        </button>
+        <button class="export-btn" onclick="exportExcel()" title="Export as Excel (.xlsx)">
+          <i class="fas fa-file-excel"></i><span class="export-label"> Excel</span>
+        </button>
+        <button class="export-btn" onclick="exportCSV()" title="Export as CSV">
+          <i class="fas fa-file-csv"></i><span class="export-label"> CSV</span>
+        </button>
       </div>
     </div>
 
@@ -621,6 +642,7 @@ document.getElementById('logBtn').addEventListener('click', async () => {
     if (!resp.ok) { showError(data.error || 'Failed to log trip.'); return; }
 
     hideResult();
+    tripsData.unshift(data.trip);
     prependTripRow(data.trip);
     updateTotal(data.trip.miles, true);
 
@@ -646,6 +668,7 @@ document.getElementById('logBtn').addEventListener('click', async () => {
 
 let totalMilesAccum = 0;
 let tripCount       = 0;
+let tripsData       = [];
 let headerInserted  = false;
 
 async function loadHistory() {
@@ -657,6 +680,7 @@ async function loadHistory() {
     document.getElementById('emptyState')?.remove();
     totalMilesAccum = 0;
     tripCount = trips.length;
+    tripsData = [...trips];
     trips.forEach(t => { prependTripRow(t, false); totalMilesAccum += t.miles; });
     updateTotalDisplay();
   } catch { /* non-fatal */ }
@@ -702,6 +726,7 @@ async function deleteTrip(id, miles) {
     const resp = await fetch(`/history/${id}`, { method: 'DELETE' });
     if (!resp.ok) return;
     document.getElementById(`trip-${id}`).remove();
+    tripsData = tripsData.filter(t => t.id !== id);
     updateTotal(miles, false);
 
     const wrap = document.getElementById('historyWrap');
@@ -726,13 +751,16 @@ function updateTotal(miles, add) {
 
 function updateTotalDisplay() {
   const bar = document.getElementById('statsBar');
+  const btns = document.getElementById('exportBtns');
   if (tripCount > 0) {
     document.getElementById('statTotalMiles').textContent =
       (Math.round(totalMilesAccum * 100) / 100).toLocaleString();
     document.getElementById('statTripCount').textContent = tripCount;
     bar.classList.remove('d-none');
+    btns.classList.remove('d-none');
   } else {
     bar.classList.add('d-none');
+    btns.classList.add('d-none');
   }
 }
 
@@ -755,6 +783,74 @@ function escHtml(str) {
 
 document.getElementById('errorClose').addEventListener('click', hideError);
 loadHistory();
+
+
+// ─── Export ───────────────────────────────────────────────────────────────
+
+function exportCSV() {
+  const rows = [['Start Location', 'End Location', 'Miles', 'Date']];
+  tripsData.forEach(t => rows.push([t.start, t.end, t.miles, t.timestamp]));
+  rows.push(['', 'TOTAL', (Math.round(totalMilesAccum * 100) / 100), '']);
+  const csv = rows.map(r =>
+    r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')
+  ).join('\r\n');
+  triggerDownload('mileage-log.csv', 'text/csv;charset=utf-8;', csv);
+}
+
+function exportExcel() {
+  const rows = [['Start Location', 'End Location', 'Miles', 'Date']];
+  tripsData.forEach(t => rows.push([t.start, t.end, t.miles, t.timestamp]));
+  rows.push(['', 'TOTAL', Math.round(totalMilesAccum * 100) / 100, '']);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 36 }, { wch: 36 }, { wch: 10 }, { wch: 22 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Mileage Log');
+  XLSX.writeFile(wb, 'mileage-log.xlsx');
+}
+
+function exportPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.setFontSize(16);
+  doc.setTextColor(79, 70, 229);
+  doc.text('Mileage Log', 14, 18);
+
+  doc.setFontSize(9);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Exported on ${new Date().toLocaleDateString()}  ·  ${tripCount} trips  ·  ${(Math.round(totalMilesAccum * 100) / 100).toLocaleString()} mi total`, 14, 25);
+
+  doc.autoTable({
+    startY: 30,
+    head: [['Start Location', 'End Location', 'Miles', 'Date']],
+    body: tripsData.map(t => [t.start, t.end, t.miles, t.timestamp]),
+    foot: [['', 'Total', Math.round(totalMilesAccum * 100) / 100, '']],
+    headStyles:  { fillColor: [79, 70, 229], fontSize: 8, fontStyle: 'bold' },
+    footStyles:  { fillColor: [238, 242, 255], textColor: [79, 70, 229], fontStyle: 'bold', fontSize: 8 },
+    bodyStyles:  { fontSize: 8 },
+    columnStyles: { 2: { halign: 'right' } },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    margin: { left: 14, right: 14 },
+  });
+
+  doc.save('mileage-log.pdf');
+}
+
+function triggerDownload(filename, type, content) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </body>
 </html>
