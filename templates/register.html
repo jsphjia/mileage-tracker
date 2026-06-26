@@ -48,6 +48,14 @@
     }
     .field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
     .field input::placeholder { color: #CBD5E1; }
+    .pw-wrap { position: relative; }
+    .pw-wrap input { padding-right: 42px; }
+    .pw-toggle {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; color: var(--muted);
+      padding: 0; font-size: .95rem; line-height: 1;
+    }
+    .pw-toggle:hover { color: var(--primary); }
 
     /* Password strength */
     .pw-checks { margin-top: 8px; display: none; }
@@ -117,7 +125,12 @@
         </div>
         <div class="field">
           <label for="password">Password</label>
-          <input type="password" id="password" name="password" required placeholder="••••••••">
+          <div class="pw-wrap">
+            <input type="password" id="password" name="password" required placeholder="••••••••">
+            <button type="button" class="pw-toggle" onclick="togglePw(this)" tabindex="-1" aria-label="Toggle password visibility">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
           <div class="pw-checks" id="pwChecks">
             <div class="pw-check bad" id="chkLength"><i class="fas fa-times-circle"></i> At least 6 characters</div>
             <div class="pw-check bad" id="chkLower"><i class="fas fa-times-circle"></i> One lowercase letter (a–z)</div>
@@ -128,7 +141,12 @@
         </div>
         <div class="field">
           <label for="confirm_password">Confirm Password</label>
-          <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••">
+          <div class="pw-wrap">
+            <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••">
+            <button type="button" class="pw-toggle" onclick="togglePw(this)" tabindex="-1" aria-label="Toggle password visibility">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
           <div class="match-msg" id="matchMsg"></div>
         </div>
         <button type="submit" class="btn-submit">Create Account</button>
@@ -140,6 +158,14 @@
   </div>
 
   <script>
+    function togglePw(btn) {
+      const input = btn.parentElement.querySelector('input');
+      const icon  = btn.querySelector('i');
+      const show  = input.type === 'password';
+      input.type     = show ? 'text' : 'password';
+      icon.className = show ? 'fas fa-eye-slash' : 'fas fa-eye';
+    }
+
     const pwInput = document.getElementById('password');
     const cfInput = document.getElementById('confirm_password');
     const checks  = document.getElementById('pwChecks');
