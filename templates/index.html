@@ -444,7 +444,7 @@ function setupAutocomplete(inputId, dropdownId) {
     clearTimeout(debounceTimer);
     const q = input.value.trim();
     if (q.length < 3) { hideDropdown(dropdown); return; }
-    debounceTimer = setTimeout(() => fetchSuggestions(q, input, dropdown), 300);
+    debounceTimer = setTimeout(() => fetchSuggestions(q, input, dropdown), 500);
   });
 
   input.addEventListener('keydown', (e) => {
@@ -473,16 +473,23 @@ function setupAutocomplete(inputId, dropdownId) {
 }
 
 function fetchSuggestions(query, input, dropdown) {
-  fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`)
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=6&addressdetails=1`;
+  fetch(url, { headers: { 'Accept-Language': 'en' } })
     .then(r => r.json())
     .then(data => {
-      const features = data.features || [];
-      if (!features.length) { hideDropdown(dropdown); return; }
+      if (!data.length) { hideDropdown(dropdown); return; }
       dropdown.innerHTML = '';
-      features.forEach(f => {
-        const p = f.properties;
-        const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
-        const label = parts.join(', ');
+      data.forEach(result => {
+        const a = result.address || {};
+        const road = a.road || a.pedestrian || a.footway || a.path;
+        const street = [a.house_number, road].filter(Boolean).join(' ');
+        const parts = [
+          street,
+          a.city || a.town || a.village || a.municipality || a.suburb,
+          a.state,
+          a.country
+        ].filter(Boolean);
+        const label = parts.length >= 2 ? parts.join(', ') : result.display_name;
         const item = document.createElement('div');
         item.className = 'autocomplete-item';
         item.textContent = label;
