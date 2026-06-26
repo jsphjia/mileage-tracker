@@ -1,93 +1,538 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mileage Tracker</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f8f9fa;
-            margin: 0;
-            padding: 0;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mileage Tracker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    body { background-color: #f8f9fa; }
 
-        .navbar {
-            background-color: #007bff;
-        }
+    .tracker-card {
+      max-width: 640px;
+      margin: 40px auto;
+    }
 
-        .navbar-brand {
-            color: white !important;
-            font-size: 24px;
-            font-weight: bold;
-        }
+    /* Photon autocomplete dropdown */
+    .autocomplete-wrapper { position: relative; }
+    .autocomplete-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: white;
+      border: 1px solid #ced4da;
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      max-height: 220px;
+      overflow-y: auto;
+      box-shadow: 0 4px 8px rgba(0,0,0,.1);
+    }
+    .autocomplete-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .autocomplete-item:hover, .autocomplete-item.active { background: #e9ecef; }
 
-        .container {
-            margin-top: 50px;
-            max-width: 600px;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
+    /* Voice confirmation bar */
+    .confirm-bar {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      margin-top: 4px;
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+    .confirm-bar.show { display: flex; }
+    .confirm-bar .confirm-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        label {
-            font-weight: bold;
-        }
-
-        input[type="text"] {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-        }
-
-        button {
-            width: 100%;
-            padding: 10px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 16px;
-            cursor: pointer;
-        }
-
-        button:hover {
-            background-color: #0056b3;
-        }
-    </style>
-    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places"></script>
-    <script>
-        function initAutocomplete() {
-            const startInput = document.getElementById('start');
-            const endInput = document.getElementById('end');
-
-            new google.maps.places.Autocomplete(startInput);
-            new google.maps.places.Autocomplete(endInput);
-        }
-    </script>
+    /* History table */
+    .miles-badge {
+      font-weight: 600;
+      color: #0d6efd;
+    }
+  </style>
 </head>
-<body onload="initAutocomplete()">
-    <nav class="navbar">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="#">Mileage Tracker</a>
-        </div>
-    </nav>
+<body>
 
-    <div class="container">
-        <form action="/calculate" method="post">
-            <label for="start">Start Location:</label>
-            <input type="text" id="start" name="start" required>
-            <label for="end">End Location:</label>
-            <input type="text" id="end" name="end" required>
-            <button type="submit">Calculate Distance</button>
-        </form>
+<nav class="navbar" style="background-color:#007bff;">
+  <div class="container-fluid">
+    <span class="navbar-brand text-white fw-bold fs-4">Mileage Tracker</span>
+    <div class="d-flex align-items-center gap-3">
+      <span class="text-white small">{{ username }}</span>
+      <a href="/logout" class="btn btn-sm btn-outline-light">Sign Out</a>
+    </div>
+  </div>
+</nav>
+
+<div class="tracker-card">
+
+  <!-- ── Trip logging card ────────────────────────────────── -->
+  <div class="card shadow-sm p-4 mb-4">
+    <h5 class="mb-3">Log a Trip</h5>
+
+    <!-- Start location -->
+    <div class="mb-3">
+      <label for="start" class="form-label fw-semibold">Start Location</label>
+      <div class="autocomplete-wrapper">
+        <div class="input-group">
+          <input type="text" id="start" class="form-control" placeholder="Enter start address" autocomplete="off">
+          <button class="btn btn-outline-secondary" type="button" id="voiceStart" title="Voice input">
+            <i class="fas fa-microphone"></i>
+          </button>
+        </div>
+        <div class="autocomplete-dropdown d-none" id="startDropdown"></div>
+      </div>
+      <div class="confirm-bar" id="startConfirmBar">
+        <i class="fas fa-map-marker-alt text-warning"></i>
+        <span class="confirm-text" id="startConfirmText"></span>
+        <button class="btn btn-sm btn-success py-0" id="startConfirmYes">&#10003; Correct</button>
+        <button class="btn btn-sm btn-outline-secondary py-0" id="startConfirmEdit">&#9998; Edit</button>
+      </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- End location -->
+    <div class="mb-3">
+      <label for="end" class="form-label fw-semibold">End Location</label>
+      <div class="autocomplete-wrapper">
+        <div class="input-group">
+          <input type="text" id="end" class="form-control" placeholder="Enter end address" autocomplete="off">
+          <button class="btn btn-outline-secondary" type="button" id="voiceEnd" title="Voice input">
+            <i class="fas fa-microphone"></i>
+          </button>
+        </div>
+        <div class="autocomplete-dropdown d-none" id="endDropdown"></div>
+      </div>
+      <div class="confirm-bar" id="endConfirmBar">
+        <i class="fas fa-map-marker-alt text-warning"></i>
+        <span class="confirm-text" id="endConfirmText"></span>
+        <button class="btn btn-sm btn-success py-0" id="endConfirmYes">&#10003; Correct</button>
+        <button class="btn btn-sm btn-outline-secondary py-0" id="endConfirmEdit">&#9998; Edit</button>
+      </div>
+    </div>
+
+    <button id="calculateBtn" class="btn btn-primary w-100">
+      <i class="fas fa-route me-1"></i> Calculate Distance
+    </button>
+
+    <!-- Result panel (hidden until calculation succeeds) -->
+    <div id="resultPanel" class="d-none mt-3">
+      <div class="alert alert-info mb-2 py-2">
+        <strong id="resultMiles"></strong> miles &mdash;
+        <span id="resultRoute" class="text-muted small"></span>
+      </div>
+      <button id="logBtn" class="btn btn-success w-100">
+        <i class="fas fa-plus-circle me-1"></i> Log This Trip
+      </button>
+    </div>
+
+    <!-- Error alert -->
+    <div id="errorAlert" class="alert alert-danger alert-dismissible fade d-none mt-3" role="alert">
+      <span id="errorMsg"></span>
+      <button type="button" class="btn-close" id="errorClose"></button>
+    </div>
+
+    <!-- Success toast -->
+    <div id="successAlert" class="alert alert-success fade d-none mt-3" role="alert">
+      <i class="fas fa-check-circle me-1"></i> Trip logged successfully!
+    </div>
+  </div>
+
+  <!-- ── History table ────────────────────────────────────── -->
+  <div class="card shadow-sm p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Trip History</h5>
+      <span id="totalMiles" class="text-muted small"></span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" id="historyTable">
+        <thead class="table-light">
+          <tr>
+            <th>Start</th>
+            <th>End</th>
+            <th>Miles</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr id="emptyRow">
+            <td colspan="5" class="text-center text-muted py-4">No trips logged yet.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /.tracker-card -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ─── Photon autocomplete ──────────────────────────────────────────────────
+
+function setupAutocomplete(inputId, dropdownId) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  let debounceTimer = null;
+
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const q = input.value.trim();
+    if (q.length < 3) { hideDropdown(dropdown); return; }
+    debounceTimer = setTimeout(() => fetchSuggestions(q, input, dropdown), 300);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const items = dropdown.querySelectorAll('.autocomplete-item');
+    const active = dropdown.querySelector('.autocomplete-item.active');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = active ? active.nextElementSibling : items[0];
+      if (next) { active && active.classList.remove('active'); next.classList.add('active'); }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prev = active ? active.previousElementSibling : items[items.length - 1];
+      if (prev) { active && active.classList.remove('active'); prev.classList.add('active'); }
+    } else if (e.key === 'Enter' && active) {
+      e.preventDefault();
+      input.value = active.dataset.label;
+      hideDropdown(dropdown);
+    } else if (e.key === 'Escape') {
+      hideDropdown(dropdown);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !dropdown.contains(e.target)) hideDropdown(dropdown);
+  });
+}
+
+function fetchSuggestions(query, input, dropdown) {
+  fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`)
+    .then(r => r.json())
+    .then(data => {
+      const features = data.features || [];
+      if (!features.length) { hideDropdown(dropdown); return; }
+      dropdown.innerHTML = '';
+      features.forEach(f => {
+        const p = f.properties;
+        const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
+        const label = parts.join(', ');
+        const item = document.createElement('div');
+        item.className = 'autocomplete-item';
+        item.textContent = label;
+        item.dataset.label = label;
+        item.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          input.value = label;
+          hideDropdown(dropdown);
+        });
+        dropdown.appendChild(item);
+      });
+      dropdown.classList.remove('d-none');
+    })
+    .catch(() => hideDropdown(dropdown));
+}
+
+function hideDropdown(dropdown) {
+  dropdown.classList.add('d-none');
+  dropdown.innerHTML = '';
+}
+
+setupAutocomplete('start', 'startDropdown');
+setupAutocomplete('end', 'endDropdown');
+
+
+// ─── Voice input with confirmation ───────────────────────────────────────
+
+function setupVoice(buttonId, inputId, confirmBarId, confirmTextId, confirmYesId, confirmEditId, dropdownId) {
+  const btn = document.getElementById(buttonId);
+  const input = document.getElementById(inputId);
+  const bar = document.getElementById(confirmBarId);
+  const confirmText = document.getElementById(confirmTextId);
+  const confirmYes = document.getElementById(confirmYesId);
+  const confirmEdit = document.getElementById(confirmEditId);
+  const dropdown = document.getElementById(dropdownId);
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    btn.disabled = true;
+    btn.title = 'Voice input not supported in this browser (try Chrome or Edge)';
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  btn.addEventListener('click', () => {
+    btn.classList.add('btn-danger');
+    btn.classList.remove('btn-outline-secondary');
+    bar.classList.remove('show');
+    recognition.start();
+  });
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    input.value = transcript;
+    stopRecording();
+
+    // Trigger autocomplete so user can pick a canonical address
+    input.dispatchEvent(new Event('input'));
+
+    // Show confirmation bar after autocomplete dropdown closes
+    // We wait for the user to interact or after a short delay if no dropdown appears
+    const dropdown = document.getElementById(dropdownId);
+    const waitForClose = () => {
+      if (!dropdown.classList.contains('d-none')) {
+        setTimeout(waitForClose, 200);
+      } else {
+        showConfirmBar(input.value);
+      }
+    };
+    setTimeout(waitForClose, 600);
+  };
+
+  recognition.onerror = stopRecording;
+  recognition.onend = stopRecording;
+
+  function stopRecording() {
+    btn.classList.remove('btn-danger');
+    btn.classList.add('btn-outline-secondary');
+  }
+
+  function showConfirmBar(address) {
+    if (!address.trim()) return;
+    confirmText.textContent = address;
+    bar.classList.add('show');
+  }
+
+  confirmYes.addEventListener('click', () => {
+    input.classList.add('is-valid');
+    bar.classList.remove('show');
+  });
+
+  confirmEdit.addEventListener('click', () => {
+    bar.classList.remove('show');
+    input.classList.remove('is-valid');
+    input.focus();
+    input.select();
+  });
+
+  // Clear validation style if user edits manually after voice
+  input.addEventListener('input', () => {
+    input.classList.remove('is-valid');
+    bar.classList.remove('show');
+  });
+}
+
+setupVoice('voiceStart', 'start', 'startConfirmBar', 'startConfirmText', 'startConfirmYes', 'startConfirmEdit', 'startDropdown');
+setupVoice('voiceEnd',   'end',   'endConfirmBar',   'endConfirmText',   'endConfirmYes',   'endConfirmEdit',   'endDropdown');
+
+
+// ─── Calculate distance ───────────────────────────────────────────────────
+
+let lastResult = null;
+
+document.getElementById('calculateBtn').addEventListener('click', async () => {
+  const start = document.getElementById('start').value.trim();
+  const end   = document.getElementById('end').value.trim();
+  hideError();
+  hideResult();
+
+  if (!start || !end) {
+    showError('Please enter both a start and end location.');
+    return;
+  }
+
+  const btn = document.getElementById('calculateBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Calculating…';
+
+  try {
+    const resp = await fetch('/calculate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({start, end})
+    });
+    const data = await resp.json();
+    if (!resp.ok) { showError(data.error || 'Calculation failed.'); return; }
+
+    lastResult = data;
+    document.getElementById('resultMiles').textContent = data.distance_miles;
+    document.getElementById('resultRoute').textContent = `${data.start} → ${data.end}`;
+    document.getElementById('resultPanel').classList.remove('d-none');
+  } catch {
+    showError('Network error. Please check your connection and try again.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-route me-1"></i> Calculate Distance';
+  }
+});
+
+
+// ─── Log trip ─────────────────────────────────────────────────────────────
+
+document.getElementById('logBtn').addEventListener('click', async () => {
+  if (!lastResult) return;
+  const logBtn = document.getElementById('logBtn');
+  logBtn.disabled = true;
+  logBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving…';
+
+  try {
+    const resp = await fetch('/log', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(lastResult)
+    });
+    const data = await resp.json();
+    if (!resp.ok) { showError(data.error || 'Failed to log trip.'); return; }
+
+    hideResult();
+    prependTripRow(data.trip);
+    updateTotal(data.trip.miles, true);
+
+    const successAlert = document.getElementById('successAlert');
+    successAlert.classList.remove('d-none');
+    successAlert.classList.add('show');
+    setTimeout(() => {
+      successAlert.classList.remove('show');
+      successAlert.classList.add('d-none');
+    }, 3000);
+
+    // Reset inputs
+    document.getElementById('start').value = '';
+    document.getElementById('end').value = '';
+    document.getElementById('start').classList.remove('is-valid');
+    document.getElementById('end').classList.remove('is-valid');
+    lastResult = null;
+  } catch {
+    showError('Network error. Could not save trip.');
+  } finally {
+    logBtn.disabled = false;
+    logBtn.innerHTML = '<i class="fas fa-plus-circle me-1"></i> Log This Trip';
+  }
+});
+
+
+// ─── History table ────────────────────────────────────────────────────────
+
+let totalMilesAccum = 0;
+
+async function loadHistory() {
+  try {
+    const resp = await fetch('/history');
+    const trips = await resp.json();
+    const tbody = document.getElementById('historyBody');
+    document.getElementById('emptyRow').remove();
+
+    totalMilesAccum = 0;
+    trips.forEach(t => {
+      prependTripRow(t, false);
+      totalMilesAccum += t.miles;
+    });
+    updateTotalDisplay();
+  } catch {
+    // Non-fatal: history just won't show
+  }
+}
+
+function prependTripRow(trip, prepend = true) {
+  const emptyRow = document.getElementById('emptyRow');
+  if (emptyRow) emptyRow.remove();
+
+  const tbody = document.getElementById('historyBody');
+  const tr = document.createElement('tr');
+  tr.id = `trip-${trip.id}`;
+  tr.innerHTML = `
+    <td class="small">${escHtml(trip.start)}</td>
+    <td class="small">${escHtml(trip.end)}</td>
+    <td><span class="miles-badge">${trip.miles}</span></td>
+    <td class="small text-muted">${escHtml(trip.timestamp)}</td>
+    <td>
+      <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteTrip(${trip.id}, ${trip.miles})">
+        <i class="fas fa-trash-alt"></i>
+      </button>
+    </td>
+  `;
+  if (prepend) {
+    tbody.insertBefore(tr, tbody.firstChild);
+  } else {
+    tbody.appendChild(tr);
+  }
+}
+
+async function deleteTrip(id, miles) {
+  if (!confirm('Delete this trip?')) return;
+  try {
+    const resp = await fetch(`/history/${id}`, {method: 'DELETE'});
+    if (!resp.ok) return;
+    document.getElementById(`trip-${id}`).remove();
+    updateTotal(miles, false);
+
+    if (!document.getElementById('historyBody').querySelector('tr')) {
+      const tbody = document.getElementById('historyBody');
+      const tr = document.createElement('tr');
+      tr.id = 'emptyRow';
+      tr.innerHTML = '<td colspan="5" class="text-center text-muted py-4">No trips logged yet.</td>';
+      tbody.appendChild(tr);
+    }
+  } catch {
+    // Silently ignore delete failure
+  }
+}
+
+function updateTotal(miles, add) {
+  totalMilesAccum = add ? totalMilesAccum + miles : totalMilesAccum - miles;
+  updateTotalDisplay();
+}
+
+function updateTotalDisplay() {
+  const el = document.getElementById('totalMiles');
+  el.textContent = totalMilesAccum > 0
+    ? `Total: ${Math.round(totalMilesAccum * 100) / 100} miles`
+    : '';
+}
+
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+function showError(msg) {
+  const el = document.getElementById('errorAlert');
+  document.getElementById('errorMsg').textContent = msg;
+  el.classList.remove('d-none');
+  el.classList.add('show');
+}
+
+function hideError() {
+  const el = document.getElementById('errorAlert');
+  el.classList.remove('show');
+  el.classList.add('d-none');
+}
+
+function hideResult() {
+  document.getElementById('resultPanel').classList.add('d-none');
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+document.getElementById('errorClose').addEventListener('click', hideError);
+
+// Load history on page ready
+loadHistory();
+</script>
 </body>
 </html>
