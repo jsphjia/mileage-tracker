@@ -89,6 +89,20 @@
     }
     .pw-toggle:hover { color: var(--primary); }
 
+    .remember-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 10px 0 4px;
+    }
+    .remember-label {
+      display: flex; align-items: center; gap: 8px;
+      font-size: .85rem; color: var(--muted); cursor: pointer; user-select: none;
+    }
+    .remember-label input[type="checkbox"] {
+      width: 16px; height: 16px; accent-color: var(--primary);
+      cursor: pointer; flex-shrink: 0;
+    }
+    .forgot-link { font-size: .82rem; }
+
     .btn-submit {
       width: 100%; padding: 13px;
       background: var(--grad); border: none; border-radius: var(--radius);
@@ -159,9 +173,13 @@
             </button>
           </div>
         </div>
-        <p style="text-align:right;font-size:.82rem;margin-top:4px">
-          <a href="/forgot-password">Forgot password?</a>
-        </p>
+        <div class="remember-row">
+          <label class="remember-label">
+            <input type="checkbox" name="remember" value="1">
+            Stay logged in
+          </label>
+          <a href="/forgot-password" class="forgot-link">Forgot password?</a>
+        </div>
         <button type="submit" class="btn-submit">Sign In</button>
       </form>
 

@@ -216,9 +216,10 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
+        remember = request.form.get('remember') == '1'
         user = User.query.filter_by(email=email).first()
         if user and user.check_password(password):
-            login_user(user)
+            login_user(user, remember=remember)
             return redirect(url_for('index'))
         flash('Invalid email or password.', 'danger')
 
