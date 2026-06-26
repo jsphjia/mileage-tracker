@@ -237,13 +237,22 @@
     }
     .alert-close:hover { opacity: 1; }
 
-    /* ── History ─────────────────────────────── */
-    .history-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .total-pill {
-      background: linear-gradient(135deg, #EEF2FF, #F5F3FF);
-      color: var(--primary); font-size: 0.78rem; font-weight: 600;
-      padding: 4px 12px; border-radius: 20px; border: 1px solid #C7D2FE;
+    /* ── Stats bar ───────────────────────────── */
+    .stats-bar {
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 20px 28px;
+      margin-bottom: 20px; display: flex; align-items: center;
     }
+    .stat-item { flex: 1; text-align: center; }
+    .stat-value { font-size: 2rem; font-weight: 700; color: var(--primary); line-height: 1; }
+    .stat-label {
+      font-size: 0.7rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em; margin-top: 5px;
+    }
+    .stat-divider { width: 1px; height: 44px; background: var(--border); flex-shrink: 0; }
+
+    /* ── History ─────────────────────────────── */
+    .history-top { display: flex; align-items: center; margin-bottom: 16px; }
     .trips-header {
       display: grid; grid-template-columns: 1fr 1fr 72px 116px 36px;
       gap: 8px; padding-bottom: 8px;
@@ -369,6 +378,19 @@
     </div>
   </div>
 
+  <!-- Stats Summary -->
+  <div class="stats-bar d-none" id="statsBar">
+    <div class="stat-item">
+      <div class="stat-value" id="statTotalMiles">0</div>
+      <div class="stat-label">Total Miles</div>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <div class="stat-value" id="statTripCount">0</div>
+      <div class="stat-label">Trips Logged</div>
+    </div>
+  </div>
+
   <!-- Trip History -->
   <div class="panel">
     <div class="history-top">
@@ -376,7 +398,6 @@
         <div class="panel-heading-icon"><i class="fas fa-history"></i></div>
         Trip History
       </div>
-      <span id="totalMiles" class="total-pill d-none"></span>
     </div>
 
     <div id="historyWrap">
@@ -624,6 +645,7 @@ document.getElementById('logBtn').addEventListener('click', async () => {
 // ─── History ──────────────────────────────────────────────────────────────
 
 let totalMilesAccum = 0;
+let tripCount       = 0;
 let headerInserted  = false;
 
 async function loadHistory() {
@@ -634,6 +656,7 @@ async function loadHistory() {
 
     document.getElementById('emptyState')?.remove();
     totalMilesAccum = 0;
+    tripCount = trips.length;
     trips.forEach(t => { prependTripRow(t, false); totalMilesAccum += t.miles; });
     updateTotalDisplay();
   } catch { /* non-fatal */ }
@@ -697,16 +720,19 @@ async function deleteTrip(id, miles) {
 
 function updateTotal(miles, add) {
   totalMilesAccum = add ? totalMilesAccum + miles : totalMilesAccum - miles;
+  tripCount       = add ? tripCount + 1 : tripCount - 1;
   updateTotalDisplay();
 }
 
 function updateTotalDisplay() {
-  const el = document.getElementById('totalMiles');
-  if (totalMilesAccum > 0) {
-    el.textContent = `${Math.round(totalMilesAccum * 100) / 100} mi total`;
-    el.classList.remove('d-none');
+  const bar = document.getElementById('statsBar');
+  if (tripCount > 0) {
+    document.getElementById('statTotalMiles').textContent =
+      (Math.round(totalMilesAccum * 100) / 100).toLocaleString();
+    document.getElementById('statTripCount').textContent = tripCount;
+    bar.classList.remove('d-none');
   } else {
-    el.classList.add('d-none');
+    bar.classList.add('d-none');
   }
 }
 
