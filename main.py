@@ -18,12 +18,13 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-fallback-key')
 
-# Use PostgreSQL when DATABASE_URL is set (Railway/Render); fall back to SQLite locally.
-# `or` handles both unset and empty-string cases (Railway sets it to "" before a DB is linked).
-# Railway's legacy format uses "postgres://" which SQLAlchemy 1.4+ rejects; fix it.
+# Use PostgreSQL (via pg8000, pure-Python driver) when DATABASE_URL is set; SQLite locally.
+# pg8000 needs the +pg8000 dialect prefix and has no system library dependencies.
 _db_url = os.environ.get('DATABASE_URL') or 'sqlite:///mileage.db'
 if _db_url.startswith('postgres://'):
-    _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
+    _db_url = 'postgresql+pg8000://' + _db_url[len('postgres://'):]
+elif _db_url.startswith('postgresql://'):
+    _db_url = 'postgresql+pg8000://' + _db_url[len('postgresql://'):]
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
