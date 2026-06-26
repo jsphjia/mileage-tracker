@@ -6,3 +6,5 @@ __pycache__/
 *.pyo
 .DS_Store
 credentials.json
+test_service_account.py
+
