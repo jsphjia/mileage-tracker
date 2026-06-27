@@ -138,6 +138,7 @@
     }
     .mic-btn:hover { background: #F8FAFC; color: var(--primary); }
     .mic-btn.recording { background: #FEF2F2; color: #EF4444; }
+    .mic-btn.resolving { background: #EFF6FF; color: var(--primary); }
     .mic-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* ── Autocomplete dropdown ───────────────── */
@@ -654,7 +655,10 @@ function setupVoice(buttonId, inputId, confirmBarId, confirmTextId, confirmYesId
     input.value = transcript;
     stopRecording();
 
-    // Auto-resolve to the best Nominatim match instead of showing dropdown
+    // Show resolving state while we look up the best address match
+    btn.classList.add('resolving');
+    btn.querySelector('i').className = 'fas fa-spinner fa-spin';
+
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(transcript)}&limit=1&addressdetails=1`;
     fetch(url, { headers: { 'Accept-Language': 'en' } })
       .then(r => r.json())
@@ -663,19 +667,21 @@ function setupVoice(buttonId, inputId, confirmBarId, confirmTextId, confirmYesId
           const a = data[0].address || {};
           const road = a.road || a.pedestrian || a.footway || a.path;
           const street = [a.house_number, road].filter(Boolean).join(' ');
-          const parts = [
-            street,
-            a.city || a.town || a.village || a.municipality || a.suburb,
-            a.state,
-            a.country
-          ].filter(Boolean);
-          const label = parts.length >= 2 ? parts.join(', ') : data[0].display_name;
-          input.value = label;
+          const city = a.city || a.town || a.village || a.municipality || a.suburb;
+          const parts = [street, city, a.state, a.country].filter(Boolean);
+          // For city-only results (no street), just use city + state
+          input.value = parts.length >= 2 ? parts.join(', ') : data[0].display_name;
         }
+        doneResolving();
         showConfirmBar(input.value);
       })
-      .catch(() => showConfirmBar(input.value));
+      .catch(() => { doneResolving(); showConfirmBar(input.value); });
   };
+
+  function doneResolving() {
+    btn.classList.remove('resolving');
+    btn.querySelector('i').className = 'fas fa-microphone';
+  }
 
   recognition.onerror = (event) => {
     stopRecording();
