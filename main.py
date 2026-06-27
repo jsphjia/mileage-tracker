@@ -132,6 +132,10 @@ def send_reset_email(user, token):
     mail.send(msg)
 
 
+def _mail_config_ok():
+    return bool(app.config.get('MAIL_USERNAME') and app.config.get('MAIL_PASSWORD'))
+
+
 # ---------------------------------------------------------------------------
 # Distance calculation: Nominatim geocoding + OSRM routing
 # ---------------------------------------------------------------------------
@@ -236,6 +240,30 @@ def logout():
     return redirect(url_for('login'))
 
 
+@app.route('/debug/mail')
+@login_required
+def debug_mail():
+    cfg = {
+        'MAIL_SERVER':   app.config.get('MAIL_SERVER'),
+        'MAIL_PORT':     app.config.get('MAIL_PORT'),
+        'MAIL_USE_TLS':  app.config.get('MAIL_USE_TLS'),
+        'MAIL_USERNAME': app.config.get('MAIL_USERNAME') or '(not set)',
+        'MAIL_PASSWORD': '****' if app.config.get('MAIL_PASSWORD') else '(not set)',
+    }
+    if not _mail_config_ok():
+        return jsonify({'status': 'misconfigured', 'config': cfg}), 500
+    try:
+        msg = Message(
+            subject='Mileage Tracker — Mail Test',
+            recipients=[current_user.email],
+            html='<p>Mail is working correctly.</p>'
+        )
+        mail.send(msg)
+        return jsonify({'status': 'ok', 'sent_to': current_user.email, 'config': cfg})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': f'{type(e).__name__}: {e}', 'config': cfg}), 500
+
+
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     if current_user.is_authenticated:
@@ -249,12 +277,10 @@ def forgot_password():
                 send_reset_email(user, token)
             except Exception as e:
                 app.logger.error('Failed to send reset email: %s', e)
-                flash('Could not send email. Check your MAIL_* settings in .env.', 'danger')
+                flash(f'Could not send email: {type(e).__name__}: {e}', 'danger')
                 return render_template('forgot_password.html')
         # Always show the same message to prevent user enumeration
         flash('If that email is registered, a reset link has been sent. Check your inbox (and spam folder).', 'info')
-        if app.debug and not app.config.get('MAIL_USERNAME'):
-            flash('DEV MODE: No email configured — check the terminal for the reset link.', 'warning')
         return redirect(url_for('login'))
 
     return render_template('forgot_password.html')
