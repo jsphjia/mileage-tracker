@@ -665,10 +665,30 @@ function setupVoice(buttonId, inputId, confirmBarId, confirmTextId, confirmYesId
     setTimeout(waitForClose, 600);
   };
 
-  recognition.onerror = stopRecording;
-  recognition.onend   = stopRecording;
+  recognition.onerror = (event) => {
+    stopRecording();
+    const msgs = {
+      'not-allowed':    'Microphone access was denied. Click the lock icon in your browser's address bar and allow microphone access, then try again.',
+      'no-speech':      'No speech detected. Please try again.',
+      'audio-capture':  'No microphone found. Make sure one is connected.',
+      'network':        'Network error during voice recognition. Try again.',
+    };
+    showError(msgs[event.error] || 'Voice input failed. Please type the address instead.');
+  };
+  recognition.onend = stopRecording;
 
   function stopRecording() { btn.classList.remove('recording'); }
+
+  function showError(msg) {
+    const err = document.createElement('div');
+    err.textContent = msg;
+    err.style.cssText = 'font-size:.8rem;color:#EF4444;margin-top:5px;';
+    const existing = btn.parentElement.querySelector('.voice-err');
+    if (existing) existing.remove();
+    err.className = 'voice-err';
+    btn.parentElement.appendChild(err);
+    setTimeout(() => err.remove(), 5000);
+  }
 
   function showConfirmBar(address) {
     if (!address.trim()) return;
