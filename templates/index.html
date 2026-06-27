@@ -680,7 +680,7 @@ function setupVoice(buttonId, inputId, confirmBarId, confirmTextId, confirmYesId
   recognition.onerror = (event) => {
     stopRecording();
     const msgs = {
-      'not-allowed':    'Microphone access was denied. Click the lock icon in your browser's address bar and allow microphone access, then try again.',
+      'not-allowed':    'Microphone access was denied. Click the lock icon in your address bar and allow microphone access, then try again.',
       'no-speech':      'No speech detected. Please try again.',
       'audio-capture':  'No microphone found. Make sure one is connected.',
       'network':        'Network error during voice recognition. Try again.',
