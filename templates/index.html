@@ -653,16 +653,28 @@ function setupVoice(buttonId, inputId, confirmBarId, confirmTextId, confirmYesId
     const transcript = event.results[0][0].transcript;
     input.value = transcript;
     stopRecording();
-    input.dispatchEvent(new Event('input'));
 
-    const waitForClose = () => {
-      if (!dropdown.classList.contains('d-none')) {
-        setTimeout(waitForClose, 200);
-      } else {
+    // Auto-resolve to the best Nominatim match instead of showing dropdown
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(transcript)}&limit=1&addressdetails=1`;
+    fetch(url, { headers: { 'Accept-Language': 'en' } })
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.length) {
+          const a = data[0].address || {};
+          const road = a.road || a.pedestrian || a.footway || a.path;
+          const street = [a.house_number, road].filter(Boolean).join(' ');
+          const parts = [
+            street,
+            a.city || a.town || a.village || a.municipality || a.suburb,
+            a.state,
+            a.country
+          ].filter(Boolean);
+          const label = parts.length >= 2 ? parts.join(', ') : data[0].display_name;
+          input.value = label;
+        }
         showConfirmBar(input.value);
-      }
-    };
-    setTimeout(waitForClose, 600);
+      })
+      .catch(() => showConfirmBar(input.value));
   };
 
   recognition.onerror = (event) => {
