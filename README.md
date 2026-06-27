@@ -1,0 +1,35 @@
+# Mileage Tracker
+
+**Version 0.0.1**
+
+A web app for logging and tracking driving mileage. Enter a start and end address to calculate the driving distance, save trips to your history, and export your logs.
+
+## Features
+
+- **Account system** — register, log in, and reset your password via email
+- **Distance calculation** — uses OpenStreetMap (Nominatim + OSRM) to calculate real driving distances between two addresses
+- **Address autocomplete** — type a partial address and select from live suggestions
+- **Voice input** — speak an address into either location field; the app transcribes and resolves it to the closest matching address *(see known issues)*
+- **Trip history** — all logged trips are saved per account and displayed newest-first
+- **Edit trips** — update the start location, end location, or distance of any previously logged trip
+- **Total mileage display** — running total and trip count shown above your history
+- **Export** — download your trip history as PDF, Excel (.xlsx), or CSV
+- **Stay logged in** — optional persistent login so you don't have to sign in every visit
+- **Install as app** — add to your home screen on iOS or Android via your browser's share menu
+
+## Tech Stack
+
+- **Backend:** Flask, Flask-Login, Flask-SQLAlchemy, Flask-Mail
+- **Database:** PostgreSQL (production) / SQLite (local development)
+- **Geocoding:** Nominatim (OpenStreetMap)
+- **Routing:** OSRM public API
+- **Frontend:** Bootstrap 5, vanilla JS, Web Speech API
+
+## Known Issues
+
+- **Voice input is not always working** — the Web Speech API is browser-dependent. It works best in Chrome and Edge on desktop. Safari support is inconsistent and Firefox does not support it at all. On some devices, microphone permission prompts may be dismissed silently with no visible error. If voice input appears to do nothing, try typing the address instead.
+
+## Release Notes
+
+### v0.0.1 — June 26, 2026
+Initial release with core mileage tracking functionality, user authentication, address autocomplete, voice input, trip history with edit/delete, export (PDF/Excel/CSV), and PWA home screen support.
