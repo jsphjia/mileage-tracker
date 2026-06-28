@@ -53,7 +53,8 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    trips = db.relationship('Trip', backref='user', lazy=True, cascade='all, delete-orphan')
+    trips    = db.relationship('Trip', backref='user', lazy=True, cascade='all, delete-orphan')
+    vehicles = db.relationship('Vehicle', backref='owner', lazy=True, cascade='all, delete-orphan')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -62,18 +63,92 @@ class User(UserMixin, db.Model):
         return check_password_hash(self.password_hash, password)
 
 
-class Trip(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+class Vehicle(db.Model):
+    id      = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name    = db.Column(db.String(100), nullable=False)
+    year    = db.Column(db.String(4))
+    make    = db.Column(db.String(60))
+    model   = db.Column(db.String(60))
+    trips   = db.relationship('Trip', backref='vehicle', lazy=True)
+
+
+class Trip(db.Model):
+    id             = db.Column(db.Integer, primary_key=True)
+    user_id        = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     start_location = db.Column(db.Text, nullable=False)
-    end_location = db.Column(db.Text, nullable=False)
+    end_location   = db.Column(db.Text, nullable=False)
     distance_miles = db.Column(db.Float, nullable=False)
-    timestamp = db.Column(db.DateTime, server_default=db.func.now())
+    timestamp      = db.Column(db.DateTime, server_default=db.func.now())
+    vehicle_id     = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=True)
+    trip_date      = db.Column(db.String(10), nullable=True)
+    start_time     = db.Column(db.String(5),  nullable=True)
+    end_time       = db.Column(db.String(5),  nullable=True)
 
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
+
+def _vehicle_dict(v):
+    sub = ' '.join(filter(None, [v.year, v.make, v.model]))
+    return {'id': v.id, 'name': v.name, 'year': v.year, 'make': v.make,
+            'model': v.model, 'sub': sub}
+
+
+def _trip_dict(trip, vehicle_name=None, vehicle_sub=None):
+    return {
+        'id':           trip.id,
+        'start':        trip.start_location,
+        'end':          trip.end_location,
+        'miles':        trip.distance_miles,
+        'timestamp':    trip.timestamp.strftime('%b %d, %Y %I:%M %p') if trip.timestamp else '',
+        'vehicle_id':   trip.vehicle_id,
+        'vehicle_name': vehicle_name,
+        'vehicle_sub':  vehicle_sub,
+        'trip_date':    trip.trip_date,
+        'start_time':   trip.start_time,
+        'end_time':     trip.end_time,
+    }
+
+
+def _migrate_db():
+    """Add new columns/tables to existing databases without dropping data."""
+    dialect = db.engine.dialect.name
+    with db.engine.connect() as conn:
+        if dialect == 'sqlite':
+            result = conn.execute(db.text('PRAGMA table_info(trip)'))
+            existing = {row[1] for row in result}
+            additions = [
+                ('vehicle_id', 'INTEGER'),
+                ('trip_date',  'VARCHAR(10)'),
+                ('start_time', 'VARCHAR(5)'),
+                ('end_time',   'VARCHAR(5)'),
+            ]
+            for col, typ in additions:
+                if col not in existing:
+                    conn.execute(db.text(f'ALTER TABLE trip ADD COLUMN {col} {typ}'))
+        else:
+            result = conn.execute(db.text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'trip'"
+            ))
+            existing = {row[0] for row in result}
+            additions = [
+                ('vehicle_id', 'INTEGER'),
+                ('trip_date',  'VARCHAR(10)'),
+                ('start_time', 'VARCHAR(5)'),
+                ('end_time',   'VARCHAR(5)'),
+            ]
+            for col, typ in additions:
+                if col not in existing:
+                    conn.execute(db.text(f'ALTER TABLE trip ADD COLUMN {col} {typ}'))
+        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -327,29 +402,39 @@ def calculate():
 @login_required
 def log_trip():
     data = request.get_json()
-    start = (data.get('start') or '').strip()
-    end = (data.get('end') or '').strip()
+    start          = (data.get('start') or '').strip()
+    end            = (data.get('end')   or '').strip()
     distance_miles = data.get('distance_miles')
     if not start or not end or distance_miles is None:
         return jsonify({'error': 'Missing trip data.'}), 400
+
+    vehicle_id  = data.get('vehicle_id') or None
+    trip_date   = (data.get('trip_date')   or '').strip() or None
+    start_time  = (data.get('start_time')  or '').strip() or None
+    end_time    = (data.get('end_time')    or '').strip() or None
+
+    vehicle_name = vehicle_sub = None
+    if vehicle_id:
+        v = Vehicle.query.filter_by(id=int(vehicle_id), user_id=current_user.id).first()
+        if v:
+            vehicle_name = v.name
+            vehicle_sub  = ' '.join(filter(None, [v.year, v.make, v.model]))
+        else:
+            vehicle_id = None
+
     trip = Trip(
         user_id=current_user.id,
         start_location=start,
         end_location=end,
-        distance_miles=float(distance_miles)
+        distance_miles=float(distance_miles),
+        vehicle_id=vehicle_id,
+        trip_date=trip_date,
+        start_time=start_time,
+        end_time=end_time,
     )
     db.session.add(trip)
     db.session.commit()
-    return jsonify({
-        'success': True,
-        'trip': {
-            'id': trip.id,
-            'start': trip.start_location,
-            'end': trip.end_location,
-            'miles': trip.distance_miles,
-            'timestamp': trip.timestamp.strftime('%b %d, %Y %I:%M %p') if trip.timestamp else ''
-        }
-    })
+    return jsonify({'success': True, 'trip': _trip_dict(trip, vehicle_name, vehicle_sub)})
 
 
 @app.route('/history')
@@ -358,13 +443,11 @@ def history():
     trips = Trip.query.filter_by(user_id=current_user.id)\
                       .order_by(Trip.timestamp.desc()).all()
     return jsonify([
-        {
-            'id': t.id,
-            'start': t.start_location,
-            'end': t.end_location,
-            'miles': t.distance_miles,
-            'timestamp': t.timestamp.strftime('%b %d, %Y %I:%M %p') if t.timestamp else ''
-        }
+        _trip_dict(
+            t,
+            t.vehicle.name if t.vehicle else None,
+            ' '.join(filter(None, [t.vehicle.year, t.vehicle.make, t.vehicle.model])) if t.vehicle else None
+        )
         for t in trips
     ])
 
@@ -375,23 +458,36 @@ def update_trip(trip_id):
     trip = Trip.query.filter_by(id=trip_id, user_id=current_user.id).first()
     if not trip:
         return jsonify({'error': 'Trip not found.'}), 404
-    data = request.get_json()
-    start = (data.get('start') or '').strip()
-    end   = (data.get('end')   or '').strip()
+    data           = request.get_json()
+    start          = (data.get('start') or '').strip()
+    end            = (data.get('end')   or '').strip()
     distance_miles = data.get('distance_miles')
     if not start or not end or distance_miles is None:
         return jsonify({'error': 'Missing fields.'}), 400
-    trip.start_location  = start
-    trip.end_location    = end
-    trip.distance_miles  = float(distance_miles)
+
+    vehicle_id  = data.get('vehicle_id') or None
+    trip_date   = (data.get('trip_date')   or '').strip() or None
+    start_time  = (data.get('start_time')  or '').strip() or None
+    end_time    = (data.get('end_time')    or '').strip() or None
+
+    vehicle_name = vehicle_sub = None
+    if vehicle_id:
+        v = Vehicle.query.filter_by(id=int(vehicle_id), user_id=current_user.id).first()
+        if v:
+            vehicle_name = v.name
+            vehicle_sub  = ' '.join(filter(None, [v.year, v.make, v.model]))
+        else:
+            vehicle_id = None
+
+    trip.start_location = start
+    trip.end_location   = end
+    trip.distance_miles = float(distance_miles)
+    trip.vehicle_id     = vehicle_id
+    trip.trip_date      = trip_date
+    trip.start_time     = start_time
+    trip.end_time       = end_time
     db.session.commit()
-    return jsonify({
-        'id':        trip.id,
-        'start':     trip.start_location,
-        'end':       trip.end_location,
-        'miles':     trip.distance_miles,
-        'timestamp': trip.timestamp.strftime('%b %d, %Y %I:%M %p') if trip.timestamp else ''
-    })
+    return jsonify(_trip_dict(trip, vehicle_name, vehicle_sub))
 
 
 @app.route('/history/<int:trip_id>', methods=['DELETE'])
@@ -406,11 +502,60 @@ def delete_trip(trip_id):
 
 
 # ---------------------------------------------------------------------------
+# Vehicle routes
+# ---------------------------------------------------------------------------
+
+@app.route('/vehicles', methods=['GET'])
+@login_required
+def get_vehicles():
+    vs = Vehicle.query.filter_by(user_id=current_user.id).order_by(Vehicle.name).all()
+    return jsonify([_vehicle_dict(v) for v in vs])
+
+
+@app.route('/vehicles', methods=['POST'])
+@login_required
+def create_vehicle():
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Vehicle name is required.'}), 400
+    existing = Vehicle.query.filter(
+        Vehicle.user_id == current_user.id,
+        db.func.lower(Vehicle.name) == name.lower()
+    ).first()
+    if existing:
+        return jsonify({'error': f'You already have a vehicle named "{name}".'}), 409
+    v = Vehicle(
+        user_id=current_user.id,
+        name=name,
+        year=(data.get('year')  or '').strip() or None,
+        make=(data.get('make')  or '').strip() or None,
+        model=(data.get('model') or '').strip() or None,
+    )
+    db.session.add(v)
+    db.session.commit()
+    return jsonify(_vehicle_dict(v)), 201
+
+
+@app.route('/vehicles/<int:vehicle_id>', methods=['DELETE'])
+@login_required
+def delete_vehicle(vehicle_id):
+    v = Vehicle.query.filter_by(id=vehicle_id, user_id=current_user.id).first()
+    if not v:
+        return jsonify({'error': 'Vehicle not found.'}), 404
+    Trip.query.filter_by(vehicle_id=vehicle_id).update({'vehicle_id': None})
+    db.session.delete(v)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 with app.app_context():
     db.create_all()
+    _migrate_db()
 
 if __name__ == '__main__':
     app.run(debug=True)
