@@ -1,6 +1,6 @@
 # Mileage Tracker
 
-**Version 0.0.1**
+**Version 0.0.2**
 
 A web app for logging and tracking driving mileage. Enter a start and end address to calculate the driving distance, save trips to your history, and export your logs.
 
@@ -10,10 +10,13 @@ A web app for logging and tracking driving mileage. Enter a start and end addres
 - **Distance calculation** — uses OpenStreetMap (Nominatim + OSRM) to calculate real driving distances between two addresses
 - **Address autocomplete** — type a partial address and select from live suggestions
 - **Voice input** — speak an address into either location field; the app transcribes and resolves it to the closest matching address *(see known issues)*
+- **Vehicle management** — add vehicles with a nickname and year/make/model; select which vehicle was used when logging each trip
+- **Trip date & time** — optionally record the date a trip took place plus start and end times; history shows `–` when times are omitted
+- **12h / 24h time toggle** — switch between 12-hour and 24-hour time display from the navbar; preference is saved across sessions
 - **Trip history** — all logged trips are saved per account and displayed newest-first
-- **Edit trips** — update the start location, end location, or distance of any previously logged trip
+- **Edit trips** — update start/end location, distance, vehicle, date, and times for any previously logged trip
 - **Total mileage display** — running total and trip count shown above your history
-- **Export** — download your trip history as PDF, Excel (.xlsx), or CSV
+- **Export** — download your trip history as PDF, Excel (.xlsx), or CSV; exports include vehicle, date, and time columns
 - **Stay logged in** — optional persistent login so you don't have to sign in every visit
 - **Install as app** — add to your home screen on iOS or Android via your browser's share menu
 
@@ -30,6 +33,14 @@ A web app for logging and tracking driving mileage. Enter a start and end addres
 - **Voice input is not always working** — the Web Speech API is browser-dependent. It works best in Chrome and Edge on desktop. Safari support is inconsistent and Firefox does not support it at all. On some devices, microphone permission prompts may be dismissed silently with no visible error. If voice input appears to do nothing, try typing the address instead.
 
 ## Release Notes
+
+### v0.0.2 — June 28, 2026
+- Added vehicle management: create a personal vehicle list with nickname, year, make, and model; duplicate names are rejected
+- Added vehicle selection when logging or editing a trip
+- Added optional trip date, start time, and end time fields; history shows `–` when times are not entered
+- Added 12h/24h time format toggle in the navbar, persisted in localStorage
+- Updated exports (PDF, Excel, CSV) to include vehicle, trip date, start time, and end time columns
+- PDF export switched to landscape to accommodate the additional columns
 
 ### v0.0.1 — June 26, 2026
 Initial release with core mileage tracking functionality, user authentication, address autocomplete, voice input, trip history with edit/delete, export (PDF/Excel/CSV), and PWA home screen support.
