@@ -10,7 +10,6 @@ from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
     login_required, current_user
 )
-from flask_mail import Mail, Message
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -34,17 +33,14 @@ _db_url = _db_url.split('?', 1)[0]
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
-app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
-app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME')
+# Resend (HTTPS email API) — Railway blocks outbound SMTP on non-Pro plans,
+# so password reset emails are sent over HTTPS instead of raw SMTP.
+app.config['RESEND_API_KEY'] = os.environ.get('RESEND_API_KEY')
+app.config['RESEND_FROM_EMAIL'] = os.environ.get('RESEND_FROM_EMAIL') or 'onboarding@resend.dev'
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
-mail = Mail(app)
 
 
 # ---------------------------------------------------------------------------
@@ -191,14 +187,27 @@ def verify_reset_token(token, max_age=3600):
     except (SignatureExpired, BadSignature):
         return None
 
+RESEND_API_URL = 'https://api.resend.com/emails'
+
+
+def _send_email(to, subject, html):
+    resp = requests.post(
+        RESEND_API_URL,
+        headers={'Authorization': f'Bearer {app.config["RESEND_API_KEY"]}'},
+        json={'from': app.config['RESEND_FROM_EMAIL'], 'to': [to], 'subject': subject, 'html': html},
+        timeout=10
+    )
+    resp.raise_for_status()
+
+
 def send_reset_email(user, token):
     reset_url = url_for('reset_password', token=token, _external=True)
-    if not app.config.get('MAIL_USERNAME'):
+    if not app.config.get('RESEND_API_KEY'):
         app.logger.info('DEV — password reset URL: %s', reset_url)
         return
-    msg = Message(
+    _send_email(
+        to=user.email,
         subject='Mileage Tracker — Password Reset',
-        recipients=[user.email],
         html=(
             f'<p>Hi {user.username},</p>'
             f'<p>Click the link below to reset your password. '
@@ -207,11 +216,10 @@ def send_reset_email(user, token):
             f'<p>If you did not request this, you can ignore this email.</p>'
         )
     )
-    mail.send(msg)
 
 
 def _mail_config_ok():
-    return bool(app.config.get('MAIL_USERNAME') and app.config.get('MAIL_PASSWORD'))
+    return bool(app.config.get('RESEND_API_KEY'))
 
 
 # ---------------------------------------------------------------------------
@@ -322,21 +330,13 @@ def logout():
 @login_required
 def debug_mail():
     cfg = {
-        'MAIL_SERVER':   app.config.get('MAIL_SERVER'),
-        'MAIL_PORT':     app.config.get('MAIL_PORT'),
-        'MAIL_USE_TLS':  app.config.get('MAIL_USE_TLS'),
-        'MAIL_USERNAME': app.config.get('MAIL_USERNAME') or '(not set)',
-        'MAIL_PASSWORD': '****' if app.config.get('MAIL_PASSWORD') else '(not set)',
+        'RESEND_API_KEY':    '****' if app.config.get('RESEND_API_KEY') else '(not set)',
+        'RESEND_FROM_EMAIL': app.config.get('RESEND_FROM_EMAIL'),
     }
     if not _mail_config_ok():
         return jsonify({'status': 'misconfigured', 'config': cfg}), 500
     try:
-        msg = Message(
-            subject='Mileage Tracker — Mail Test',
-            recipients=[current_user.email],
-            html='<p>Mail is working correctly.</p>'
-        )
-        mail.send(msg)
+        _send_email(current_user.email, 'Mileage Tracker — Mail Test', '<p>Mail is working correctly.</p>')
         return jsonify({'status': 'ok', 'sent_to': current_user.email, 'config': cfg})
     except Exception as e:
         return jsonify({'status': 'error', 'error': f'{type(e).__name__}: {e}', 'config': cfg}), 500
