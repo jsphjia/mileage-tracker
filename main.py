@@ -207,7 +207,7 @@ def _send_email(to, subject, html):
 
 def send_reset_email(user, token):
     reset_url = url_for('reset_password', token=token, _external=True)
-    if not app.config.get('BREVO_API_KEY'):
+    if not _mail_config_ok():
         app.logger.info('DEV — password reset URL: %s', reset_url)
         return
     _send_email(
@@ -331,22 +331,6 @@ def logout():
     return redirect(url_for('login'))
 
 
-@app.route('/debug/mail')
-@login_required
-def debug_mail():
-    cfg = {
-        'BREVO_API_KEY':      '****' if app.config.get('BREVO_API_KEY') else '(not set)',
-        'BREVO_SENDER_EMAIL': app.config.get('BREVO_SENDER_EMAIL') or '(not set)',
-    }
-    if not _mail_config_ok():
-        return jsonify({'status': 'misconfigured', 'config': cfg}), 500
-    try:
-        _send_email(current_user.email, 'Mileage Tracker — Mail Test', '<p>Mail is working correctly.</p>')
-        return jsonify({'status': 'ok', 'sent_to': current_user.email, 'config': cfg})
-    except Exception as e:
-        return jsonify({'status': 'error', 'error': f'{type(e).__name__}: {e}', 'config': cfg}), 500
-
-
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     if current_user.is_authenticated:
@@ -360,7 +344,7 @@ def forgot_password():
                 send_reset_email(user, token)
             except Exception as e:
                 app.logger.error('Failed to send reset email: %s', e)
-                flash(f'Could not send email: {type(e).__name__}: {e}', 'danger')
+                flash('Could not send email. Please try again later.', 'danger')
                 return render_template('forgot_password.html')
         # Always show the same message to prevent user enumeration
         flash('If that email is registered, a reset link has been sent. Check your inbox (and spam folder).', 'info')
