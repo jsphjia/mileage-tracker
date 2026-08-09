@@ -14,6 +14,6 @@ services:
         value: 3.11.0
       # DATABASE_URL: set to your Neon connection string (Neon dashboard →
       # Connection Details). Any ?sslmode=... suffix is fine — main.py strips it.
-      # Set RESEND_API_KEY (and RESEND_FROM_EMAIL, once a domain is verified)
+      # Set BREVO_API_KEY and BREVO_SENDER_EMAIL (a verified Brevo sender)
       # manually in the Render dashboard after deployment
       # (Dashboard → mileage-tracker → Environment)

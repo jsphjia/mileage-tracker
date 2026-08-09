@@ -33,10 +33,10 @@ _db_url = _db_url.split('?', 1)[0]
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Resend (HTTPS email API) — Railway blocks outbound SMTP on non-Pro plans,
+# Brevo (HTTPS email API) — Railway blocks outbound SMTP on non-Pro plans,
 # so password reset emails are sent over HTTPS instead of raw SMTP.
-app.config['RESEND_API_KEY'] = os.environ.get('RESEND_API_KEY')
-app.config['RESEND_FROM_EMAIL'] = os.environ.get('RESEND_FROM_EMAIL') or 'onboarding@resend.dev'
+app.config['BREVO_API_KEY'] = os.environ.get('BREVO_API_KEY')
+app.config['BREVO_SENDER_EMAIL'] = os.environ.get('BREVO_SENDER_EMAIL')
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -187,14 +187,19 @@ def verify_reset_token(token, max_age=3600):
     except (SignatureExpired, BadSignature):
         return None
 
-RESEND_API_URL = 'https://api.resend.com/emails'
+BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
 
 def _send_email(to, subject, html):
     resp = requests.post(
-        RESEND_API_URL,
-        headers={'Authorization': f'Bearer {app.config["RESEND_API_KEY"]}'},
-        json={'from': app.config['RESEND_FROM_EMAIL'], 'to': [to], 'subject': subject, 'html': html},
+        BREVO_API_URL,
+        headers={'api-key': app.config['BREVO_API_KEY'], 'Content-Type': 'application/json'},
+        json={
+            'sender': {'email': app.config['BREVO_SENDER_EMAIL']},
+            'to': [{'email': to}],
+            'subject': subject,
+            'htmlContent': html,
+        },
         timeout=10
     )
     resp.raise_for_status()
@@ -202,7 +207,7 @@ def _send_email(to, subject, html):
 
 def send_reset_email(user, token):
     reset_url = url_for('reset_password', token=token, _external=True)
-    if not app.config.get('RESEND_API_KEY'):
+    if not app.config.get('BREVO_API_KEY'):
         app.logger.info('DEV — password reset URL: %s', reset_url)
         return
     _send_email(
@@ -219,7 +224,7 @@ def send_reset_email(user, token):
 
 
 def _mail_config_ok():
-    return bool(app.config.get('RESEND_API_KEY'))
+    return bool(app.config.get('BREVO_API_KEY') and app.config.get('BREVO_SENDER_EMAIL'))
 
 
 # ---------------------------------------------------------------------------
@@ -330,8 +335,8 @@ def logout():
 @login_required
 def debug_mail():
     cfg = {
-        'RESEND_API_KEY':    '****' if app.config.get('RESEND_API_KEY') else '(not set)',
-        'RESEND_FROM_EMAIL': app.config.get('RESEND_FROM_EMAIL'),
+        'BREVO_API_KEY':      '****' if app.config.get('BREVO_API_KEY') else '(not set)',
+        'BREVO_SENDER_EMAIL': app.config.get('BREVO_SENDER_EMAIL') or '(not set)',
     }
     if not _mail_config_ok():
         return jsonify({'status': 'misconfigured', 'config': cfg}), 500
