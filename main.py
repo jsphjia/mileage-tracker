@@ -1,3 +1,4 @@
+import base64
 import os
 import re
 import time
@@ -52,6 +53,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
+    photo_data = db.Column(db.Text, nullable=True)
     trips    = db.relationship('Trip', backref='user', lazy=True, cascade='all, delete-orphan')
     vehicles = db.relationship('Vehicle', backref='owner', lazy=True, cascade='all, delete-orphan')
 
@@ -151,6 +153,19 @@ def _migrate_db():
             for col, typ in additions:
                 if col not in existing:
                     conn.execute(db.text(f'ALTER TABLE trip ADD COLUMN {col} {typ}'))
+
+        if dialect == 'sqlite':
+            result = conn.execute(db.text('PRAGMA table_info(user)'))
+            existing_user_cols = {row[1] for row in result}
+        else:
+            result = conn.execute(db.text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'user'"
+            ))
+            existing_user_cols = {row[0] for row in result}
+        if 'photo_data' not in existing_user_cols:
+            conn.execute(db.text('ALTER TABLE "user" ADD COLUMN photo_data TEXT'))
+
         conn.commit()
 
 
@@ -440,7 +455,7 @@ def reset_password(token):
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', username=current_user.username)
+    return render_template('index.html', username=current_user.username, photo_data=current_user.photo_data)
 
 
 @app.route('/calculate', methods=['POST'])
@@ -659,7 +674,7 @@ def delete_vehicle(vehicle_id):
 @app.route('/my-vehicles')
 @login_required
 def vehicles_page():
-    return render_template('vehicles.html', username=current_user.username)
+    return render_template('vehicles.html', username=current_user.username, photo_data=current_user.photo_data)
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +684,68 @@ def vehicles_page():
 @app.route('/profile')
 @login_required
 def profile():
-    return render_template('profile.html', username=current_user.username, email=current_user.email)
+    return render_template(
+        'profile.html',
+        username=current_user.username,
+        email=current_user.email,
+        photo_data=current_user.photo_data,
+    )
+
+
+@app.route('/profile/check-username')
+@login_required
+def check_username():
+    username = (request.args.get('username') or '').strip()
+    if not username:
+        return jsonify({'available': False, 'error': 'Username is required.'})
+    if username == current_user.username:
+        return jsonify({'available': True, 'unchanged': True})
+    taken = User.query.filter_by(username=username).first() is not None
+    return jsonify({'available': not taken})
+
+
+@app.route('/profile/update-username', methods=['POST'])
+@login_required
+def update_username():
+    data = request.get_json()
+    username = (data.get('username') or '').strip()
+    if not username:
+        return jsonify({'error': 'Username is required.'}), 400
+    if username != current_user.username:
+        if User.query.filter_by(username=username).first():
+            return jsonify({'error': 'That username is already taken.'}), 409
+        current_user.username = username
+        db.session.commit()
+    return jsonify({'success': True, 'username': current_user.username})
+
+
+ALLOWED_PHOTO_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+MAX_PHOTO_BYTES = 2 * 1024 * 1024  # 2MB
+
+
+@app.route('/profile/photo', methods=['POST'])
+@login_required
+def upload_photo():
+    file = request.files.get('photo')
+    if not file or not file.filename:
+        return jsonify({'error': 'No photo provided.'}), 400
+    if file.mimetype not in ALLOWED_PHOTO_TYPES:
+        return jsonify({'error': 'Photo must be a JPEG, PNG, WEBP, or GIF image.'}), 400
+    raw = file.read()
+    if len(raw) > MAX_PHOTO_BYTES:
+        return jsonify({'error': 'Photo must be smaller than 2MB.'}), 400
+    encoded = base64.b64encode(raw).decode('ascii')
+    current_user.photo_data = f'data:{file.mimetype};base64,{encoded}'
+    db.session.commit()
+    return jsonify({'success': True, 'photo_data': current_user.photo_data})
+
+
+@app.route('/profile/photo', methods=['DELETE'])
+@login_required
+def delete_photo():
+    current_user.photo_data = None
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @app.route('/profile/change-password', methods=['POST'])
