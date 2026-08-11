@@ -11,6 +11,7 @@ from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
     login_required, current_user
 )
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -190,6 +191,18 @@ def validate_password(password):
     return errors
 
 
+def validate_username(username):
+    if not username:
+        return 'Username is required.'
+    if len(username) > 80:
+        return 'Username must be 80 characters or fewer.'
+    return None
+
+
+def username_taken(username):
+    return User.query.filter_by(username=username).first() is not None
+
+
 # ---------------------------------------------------------------------------
 # Password reset tokens (1-hour expiry via itsdangerous)
 # ---------------------------------------------------------------------------
@@ -341,7 +354,11 @@ def register():
         if not username or not email or not password:
             flash('All fields are required.', 'danger')
             return render_template('register.html')
-        if User.query.filter_by(username=username).first():
+        username_err = validate_username(username)
+        if username_err:
+            flash(username_err, 'danger')
+            return render_template('register.html')
+        if username_taken(username):
             flash('That username is already taken.', 'danger')
             return render_template('register.html')
         if User.query.filter_by(email=email).first():
@@ -696,12 +713,12 @@ def profile():
 @login_required
 def check_username():
     username = (request.args.get('username') or '').strip()
-    if not username:
-        return jsonify({'available': False, 'error': 'Username is required.'})
+    err = validate_username(username)
+    if err:
+        return jsonify({'available': False, 'error': err})
     if username == current_user.username:
         return jsonify({'available': True, 'unchanged': True})
-    taken = User.query.filter_by(username=username).first() is not None
-    return jsonify({'available': not taken})
+    return jsonify({'available': not username_taken(username)})
 
 
 @app.route('/profile/update-username', methods=['POST'])
@@ -709,18 +726,40 @@ def check_username():
 def update_username():
     data = request.get_json()
     username = (data.get('username') or '').strip()
-    if not username:
-        return jsonify({'error': 'Username is required.'}), 400
+    err = validate_username(username)
+    if err:
+        return jsonify({'error': err}), 400
     if username != current_user.username:
-        if User.query.filter_by(username=username).first():
+        if username_taken(username):
             return jsonify({'error': 'That username is already taken.'}), 409
         current_user.username = username
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError:
+            # Another request claimed this username between our check and commit.
+            db.session.rollback()
+            return jsonify({'error': 'That username is already taken.'}), 409
     return jsonify({'success': True, 'username': current_user.username})
 
 
-ALLOWED_PHOTO_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+# Signature-sniffed from actual file bytes, not the client-supplied
+# Content-Type header, so a mislabeled non-image file can't pass this check.
+_IMAGE_SIGNATURES = {
+    b'\xff\xd8\xff':          'image/jpeg',
+    b'\x89PNG\r\n\x1a\n':     'image/png',
+    b'GIF87a':                'image/gif',
+    b'GIF89a':                'image/gif',
+}
 MAX_PHOTO_BYTES = 2 * 1024 * 1024  # 2MB
+
+
+def sniff_image_type(raw):
+    for signature, mimetype in _IMAGE_SIGNATURES.items():
+        if raw.startswith(signature):
+            return mimetype
+    if raw[:4] == b'RIFF' and raw[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
 
 
 @app.route('/profile/photo', methods=['POST'])
@@ -729,13 +768,14 @@ def upload_photo():
     file = request.files.get('photo')
     if not file or not file.filename:
         return jsonify({'error': 'No photo provided.'}), 400
-    if file.mimetype not in ALLOWED_PHOTO_TYPES:
-        return jsonify({'error': 'Photo must be a JPEG, PNG, WEBP, or GIF image.'}), 400
     raw = file.read()
     if len(raw) > MAX_PHOTO_BYTES:
         return jsonify({'error': 'Photo must be smaller than 2MB.'}), 400
+    mimetype = sniff_image_type(raw)
+    if not mimetype:
+        return jsonify({'error': 'File does not appear to be a valid JPEG, PNG, WEBP, or GIF image.'}), 400
     encoded = base64.b64encode(raw).decode('ascii')
-    current_user.photo_data = f'data:{file.mimetype};base64,{encoded}'
+    current_user.photo_data = f'data:{mimetype};base64,{encoded}'
     db.session.commit()
     return jsonify({'success': True, 'photo_data': current_user.photo_data})
 
