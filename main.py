@@ -22,6 +22,12 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-fallback-key')
 
+MAX_PHOTO_BYTES = 2 * 1024 * 1024  # 2MB
+# Reject oversized request bodies at the Werkzeug layer before they're ever
+# buffered into memory, rather than only checking size after a full read().
+# +64KB covers multipart boundary/header overhead around the raw file bytes.
+app.config['MAX_CONTENT_LENGTH'] = MAX_PHOTO_BYTES + 64 * 1024
+
 # Use PostgreSQL (via pg8000, pure-Python driver) when DATABASE_URL is set; SQLite locally.
 # pg8000 needs the +pg8000 dialect prefix and has no system library dependencies.
 _db_url = os.environ.get('DATABASE_URL') or 'sqlite:///mileage.db'
@@ -750,7 +756,6 @@ _IMAGE_SIGNATURES = {
     b'GIF87a':                'image/gif',
     b'GIF89a':                'image/gif',
 }
-MAX_PHOTO_BYTES = 2 * 1024 * 1024  # 2MB
 
 
 def sniff_image_type(raw):
@@ -760,6 +765,11 @@ def sniff_image_type(raw):
     if raw[:4] == b'RIFF' and raw[8:12] == b'WEBP':
         return 'image/webp'
     return None
+
+
+@app.errorhandler(413)
+def request_too_large(_e):
+    return jsonify({'error': 'Photo must be smaller than 2MB.'}), 413
 
 
 @app.route('/profile/photo', methods=['POST'])
