@@ -423,7 +423,15 @@ def logout():
     try:
         logout_user()
     except Exception:
+        # logout_user() itself resolves current_user first, so the same DB
+        # hiccup can throw before its own cleanup runs — which is what would
+        # normally flag the "remember me" cookie for deletion. Without this,
+        # a remembered session would silently re-authenticate on the next
+        # request despite looking signed out.
         session.clear()
+        resp = redirect(url_for('login'))
+        resp.delete_cookie(app.config.get('REMEMBER_COOKIE_NAME', 'remember_token'))
+        return resp
     return redirect(url_for('login'))
 
 
